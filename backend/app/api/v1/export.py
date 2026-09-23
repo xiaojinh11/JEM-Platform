@@ -127,18 +127,30 @@ def _configs(db: Session, since: str | None) -> list[dict[str, Any]]:
         archives = archives.filter(ConfigArchive.created_at >= since)
     out = []
     for a in archives.all():
-        revs = db.query(ConfigRevision).filter_by(archive_id=a.id).order_by(ConfigRevision.revision).all()
+        revs = (
+            db.query(ConfigRevision)
+            .filter_by(archive_id=a.id)
+            .order_by(ConfigRevision.revision_no)
+            .all()
+        )
         for rev in revs:
-            out.append({
-                "archive_id": a.id,
-                "device_id": a.device_id,
-                "name": a.name,
-                "revision": rev.revision,
-                "created_at": (rev.created_at or "").isoformat() if rev.created_at else "",
-                "size_bytes": rev.size_bytes or 0,
-                "config_hash": rev.config_hash or "",
-                "config_preview": (rev.config_text or "")[:200],
-            })
+            out.append(
+                {
+                    "archive_id": a.id,
+                    "device_id": a.device_id,
+                    "name": a.name if hasattr(a, "name") else f"archive-{a.id}",
+                    "revision_no": rev.revision_no,
+                    "source": rev.source or "",
+                    "author": rev.author or "",
+                    "note": rev.note or "",
+                    "created_at": (rev.created_at or "").isoformat()
+                    if rev.created_at
+                    else "",
+                    "size_bytes": rev.size_bytes or 0,
+                    "content_hash": rev.content_hash or "",
+                    "storage_path": rev.storage_path or "",
+                }
+            )
     return out
 
 

@@ -193,9 +193,10 @@ def start_job(job_id: int, _user=Depends(require_operator), db: Session = Depend
     if job.kind == "batch_read":
         task = batch_collect.delay(job.id)
     elif job.kind in {"batch_write", "template_apply"}:
-        # Worker pulls template+params off the Job row; passing empty
-        # strings here keeps backward compatibility.
-        task = batch_apply.delay(job.id, "", {})
+        # Worker reads template_id + params directly off the Job row.
+        # Passing payload args here is deprecated; the worker will ignore
+        # them and log a warning if they are non-empty.
+        task = batch_apply.delay(job.id)
     else:
         task = batch_collect.delay(job.id)
     job.celery_task_id = task.id

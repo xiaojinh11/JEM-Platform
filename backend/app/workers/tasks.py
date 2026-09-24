@@ -14,6 +14,7 @@ from app.db.session import SessionLocal
 from app.models.device import Device, DeviceEndpoint
 from app.models.credential import Credential
 from app.models.job import Job, JobStep, BackupSnapshot
+from app.models.template import Template
 from app.services.executor import collect_config, apply_config, ExecutorError
 from app.services.configs import store_snapshot, import_text
 from app.services.templates import render, extract_commands
@@ -53,6 +54,71 @@ def _resolve_endpoint(db: Session, device_id: int) -> tuple[Device, DeviceEndpoi
         return dev, None, None
     cred = db.get(Credential, ep.credential_id) if ep.credential_id else None
     return dev, ep, cred
+
+
+def _load_template_for_job(db: Session, job: Job) -> tuple[str | None, dict]:
+    """Return (template_text, params) for a job by reading Job.template_id.
+
+    Inline commands (no template) are supported via
+    ``job.params["__inline_commands"]`` (already populated by
+    ``services.dry_run``). Returns ``(None, {})`` and writes a failed
+    PRECHECK step per device if the template is missing or empty.
+    """
+    params = dict(job.params or {})
+
+    # Path 1: inline commands stored under a private key.
+    inline = params.pop("__inline_commands", None)
+    if inline and isinstance(inline, str):
+        return inline, params
+
+    # Path 2: template_apply — body comes from the Template table.
+    if job.template_id is not None:
+        tpl = db.get(Template, job.template_id)
+        if tpl is None or not (tpl.body or "").strip():
+            err = (
+                f"template_id={job.template_id} not found or has empty body"
+            )
+            for device_id in job.target_device_ids:
+                _record_step(
+                    db,
+                    job,
+                    device_id,
+                    JobStepKind.PRECHECK.value,
+                    "failed",
+                    error=err,
+                )
+            db.commit()
+            return None, {}
+        return tpl.body, params
+
+    # No template_id AND no inline commands — fatal.
+    err = "batch_apply requires template_id or params.__inline_commands"
+    for device_id in job.target_device_ids:
+        _record_step(
+            db,
+            job,
+            device_id,
+            JobStepKind.PRECHECK.value,
+            "failed",
+            error=err,
+        )
+    db.commit()
+    return None, {}
+
+
+def _finalize_job_status(db: Session, job: Job) -> None:
+    """Set job terminal status based on aggregated step statuses."""
+    if not job.summary:
+        job.summary = _summarize(job.steps)
+    s = job.summary
+    if s.get("failed", 0) == 0 and s.get("needs_verification", 0) == 0 and s.get("total", 0) > 0:
+        job.status = JobStatus.SUCCEEDED.value
+    elif s.get("succeeded", 0) == 0 and s.get("needs_verification", 0) == 0:
+        job.status = JobStatus.FAILED.value
+    else:
+        job.status = JobStatus.PARTIAL.value
+    job.finished_at = _utcnow()
+    db.commit()
 
 
 # ── Thread-safe worker (no shared SQLAlchemy Session) ────────────────────────
@@ -173,8 +239,15 @@ def batch_collect(self, job_id: int) -> str:
     retry_backoff=True,
     retry_backoff_max=300,
 )
-def batch_apply(self, job_id: int, template_text: str, params_json: dict) -> str:
-    """Render template per device, run precheck, backup, apply, verify."""
+def batch_apply(self, job_id: int, template_text: str = "", params_json: dict | None = None) -> str:
+    """Render template per device, run precheck, backup, apply, verify.
+
+    NOTE: ``template_text`` and ``params_json`` are kept for backwards
+    compatibility but are no longer authoritative — the worker now reads
+    ``Job.template_id`` + ``Job.params`` directly so the API never has to
+    forward payloads. Inline commands travel inside ``Job.params`` under the
+    ``__inline_commands`` key (handled by ``services.dry_run``).
+    """
     db: Session = SessionLocal()
     try:
         job = db.get(Job, job_id)
@@ -184,14 +257,52 @@ def batch_apply(self, job_id: int, template_text: str, params_json: dict) -> str
         job.started_at = job.started_at or _utcnow()
         db.commit()
 
+        # Resolve the actual template body + params from the Job row.
+        # API-supplied args are ignored; if they were ever non-empty,
+        # that's a regression — log it loudly.
+        if template_text or params_json:
+            logger.warning(
+                "batch_apply received legacy payload args (job={}, template_text_len={}, params_keys={}); "
+                "ignoring in favour of Job.template_id/params",
+                job_id,
+                len(template_text),
+                list((params_json or {}).keys()),
+            )
+
+        rendered_template, params = _load_template_for_job(db, job)
+        if rendered_template is None:
+            # _load_template_for_job has already written a failed PRECHECK
+            # step per device; just summarise and return.
+            job.summary = _summarize(job.steps)
+            _finalize_job_status(db, job)
+            return job.status
+
         for device_id in job.target_device_ids:
             dev, ep, cred = _resolve_endpoint(db, device_id)
             commands: list[str] = []
             try:
-                rendered = render(template_text, **(params_json or {}))
+                rendered = render(rendered_template, params)
                 commands = extract_commands(rendered)
             except Exception as exc:  # noqa: BLE001
-                _record_step(db, job, device_id, JobStepKind.PRECHECK.value, "failed", error=str(exc))
+                _record_step(db, job, device_id, JobStepKind.PRECHECK.value, "failed", error=str(exc)[:1000])
+                db.commit()
+                continue
+
+            if not commands:
+                # Empty payload is a hard failure: never claim "succeeded"
+                # without actually pushing any commands.
+                _record_step(
+                    db,
+                    job,
+                    device_id,
+                    JobStepKind.PRECHECK.value,
+                    "failed",
+                    error=(
+                        "rendered template produced 0 commands "
+                        "(template_id=%s, params_keys=%s)"
+                    )
+                    % (job.template_id, sorted((params or {}).keys())),
+                )
                 db.commit()
                 continue
 
@@ -266,15 +377,7 @@ def batch_apply(self, job_id: int, template_text: str, params_json: dict) -> str
 
             time.sleep(0.05)
 
-        job.summary = _summarize(job.steps)
-        if job.summary["failed"] == 0 and job.summary["needs_verification"] == 0:
-            job.status = JobStatus.SUCCEEDED.value
-        elif job.summary["succeeded"] == 0:
-            job.status = JobStatus.FAILED.value
-        else:
-            job.status = JobStatus.NEEDS_VERIFICATION.value if job.summary["needs_verification"] else JobStatus.PARTIAL.value
-        job.finished_at = _utcnow()
-        db.commit()
+        _finalize_job_status(db, job)
 
         # Best-effort AI comparison. Done inline (not via a separate task)
         # because the snapshot files are already on disk and the LLM call

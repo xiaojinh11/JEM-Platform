@@ -29,6 +29,22 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _job_was_canceled(db: Session, job: Job) -> bool:
+    """Re-fetch the Job row and report whether the operator asked to cancel.
+
+    The main worker thread polls this between device iterations; the per-
+    device helpers (in thread workers) call the same check before they
+    open an SSH session so we don't dispatch a long-running write after
+    cancel. We deliberately refresh instead of trusting the in-memory
+    ``job`` so concurrent ``/control cancel`` writes from the API are
+    seen promptly. The check is cheap (single ``SELECT`` on a primary
+    key) so polling it before each device is fine.
+    """
+    db.expire(job)
+    fresh = db.get(Job, job.id)
+    return fresh is not None and fresh.status == JobStatus.CANCELED.value
+
+
 def _summarize(steps: Iterable[JobStep]) -> dict:
     statuses = [s.status for s in steps]
     return {
@@ -107,7 +123,25 @@ def _load_template_for_job(db: Session, job: Job) -> tuple[str | None, dict]:
 
 
 def _finalize_job_status(db: Session, job: Job) -> None:
-    """Set job terminal status based on aggregated step statuses."""
+    """Set job terminal status based on aggregated step statuses.
+
+    The terminal status is computed from the step outcomes *unless* the
+    operator already cancelled the job, in which case we keep the
+    cancelled status (the cancel signal is authoritative — the worker
+    must not turn a cancelled job into "partial").
+    """
+    db.expire(job)
+    fresh = db.get(Job, job.id)
+    if fresh is not None and fresh.status == JobStatus.CANCELED.value:
+        # Operator cancellation is terminal. Keep the status, just stamp
+        # finished_at and refresh the summary for the audit trail.
+        if not job.summary:
+            job.summary = _summarize(job.steps)
+        job.status = JobStatus.CANCELED.value
+        job.finished_at = _utcnow()
+        db.commit()
+        return
+
     if not job.summary:
         job.summary = _summarize(job.steps)
     s = job.summary
@@ -217,14 +251,7 @@ def batch_collect(self, job_id: int) -> str:
         db.commit()
 
         job.summary = _summarize(job.steps)
-        if job.summary["failed"] == 0:
-            job.status = JobStatus.SUCCEEDED.value
-        elif job.summary["succeeded"] == 0:
-            job.status = JobStatus.FAILED.value
-        else:
-            job.status = JobStatus.PARTIAL.value
-        job.finished_at = _utcnow()
-        db.commit()
+        _finalize_job_status(db, job)
         return job.status
     finally:
         db.close()
@@ -253,6 +280,14 @@ def batch_apply(self, job_id: int, template_text: str = "", params_json: dict | 
         job = db.get(Job, job_id)
         if not job:
             return "missing"
+
+        # Respect cancellation that was set before we started: if the job
+        # was already canceled when we fetched it, abort immediately.
+        if job.status == JobStatus.CANCELED.value:
+            job.finished_at = job.finished_at or _utcnow()
+            db.commit()
+            return JobStatus.CANCELED.value
+
         job.status = JobStatus.RUNNING.value
         job.started_at = job.started_at or _utcnow()
         db.commit()
@@ -278,6 +313,28 @@ def batch_apply(self, job_id: int, template_text: str = "", params_json: dict | 
             return job.status
 
         for device_id in job.target_device_ids:
+            # Honour cancellation: if the operator hit "cancel" while we
+            # were iterating, stop dispatching to remaining devices.
+            # Devices we haven't started yet get a skipped step so the
+            # audit trail explains why they never ran.
+            if _job_was_canceled(db, job):
+                logger.info(
+                    "batch_apply job_id={} cancelled mid-loop; stopping at device {}/{}",
+                    job.id,
+                    device_id,
+                    job.target_device_ids[-1] if job.target_device_ids else "?",
+                )
+                _record_step(
+                    db,
+                    job,
+                    device_id,
+                    JobStepKind.PRECHECK.value,
+                    "skipped",
+                    error="job canceled by operator before device started",
+                )
+                db.commit()
+                break
+
             dev, ep, cred = _resolve_endpoint(db, device_id)
             commands: list[str] = []
             try:

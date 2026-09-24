@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_operator
+from app.core.enums import JobStatus
 from app.core.logging import logger
 from app.db.session import get_db
 from app.models.job import Job
@@ -258,9 +259,20 @@ def control_job(job_id: int, payload: JobControlRequest, _user=Depends(require_o
     if not job:
         raise HTTPException(status_code=404, detail="job not found")
     if payload.action == "cancel":
-        job.status = "canceled"
+        # Only running/pending jobs can be cancelled — refusing
+        # already-terminal jobs prevents a cancel racing against the
+        # worker's finalize and confusing the audit trail.
+        if job.status in {JobStatus.SUCCEEDED.value, JobStatus.FAILED.value,
+                          JobStatus.PARTIAL.value, JobStatus.CANCELED.value,
+                          JobStatus.NEEDS_VERIFICATION.value}:
+            raise HTTPException(
+                status_code=409,
+                detail=f"job already in terminal state '{job.status}'; cannot cancel",
+            )
+        job.status = JobStatus.CANCELED.value
+        job.finished_at = job.finished_at or _utcnow()
         db.commit()
-        return {"ok": True}
+        return {"ok": True, "status": job.status}
     raise HTTPException(status_code=400, detail="unknown action")
 
 

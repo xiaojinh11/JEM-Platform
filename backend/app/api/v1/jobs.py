@@ -20,12 +20,13 @@ from app.schemas.job import (
     JobOut,
     JobStepOut,
 )
-from app.services.ai_risk import assess_job_risk
+from app.services.ai_risk import _rule_based_risk, assess_job_risk
 from app.services.dry_run import (
     build_rollback_plan,
     compute_ai_comparison,
     dry_run,
 )
+from app.utils.command_validator import format_risk_warning
 from app.workers.tasks import batch_collect, batch_apply
 
 router = APIRouter()
@@ -126,10 +127,19 @@ def create_job(payload: JobCreate, _user=Depends(require_operator), db: Session 
     db.commit()
     db.refresh(job)
 
-    # Best-effort AI risk assessment. Persists result + requires_approval flag,
-    # and builds a rollback plan that future runs can reuse. Never blocks
-    # job creation if AI is unavailable — ``risk_assessment_error`` carries
-    # the message and the rule-based verdict is always saved.
+    # Two-phase risk assessment:
+    #
+    # Phase 1 — rule-based (REQUIRED).
+    # The rule layer is pure regex on the rendered command list, with no
+    # external dependencies, so it should never throw. Its verdict feeds
+    # ``Job.requires_approval`` which is the gate ``start_job`` checks —
+    # we MUST persist this even if the AI comment or graph blast-radius
+    # lookup fails, otherwise a high-risk job could slip through when the
+    # graph or LLM is down.
+    #
+    # Phase 2 — AI risk comment + blast radius (BEST-EFFORT).
+    # Failure here is logged and stored in ``risk_assessment_error`` but
+    # never blocks job creation or nullifies the rule verdict.
     try:
         preview = dry_run(
             db,
@@ -139,31 +149,54 @@ def create_job(payload: JobCreate, _user=Depends(require_operator), db: Session 
             params=payload.params,
             device_ids=job.target_device_ids,
         )
-        risk = assess_job_risk(
+        rendered_commands = [
+            c
+            for entry in preview["commands_by_device"]
+            for c in entry["commands"]
+        ]
+    except Exception as exc:  # noqa: BLE001
+        # dry_run failing is a 4xx — bad input (template missing, render
+        # error). Surface it so the caller can fix the request.
+        logger.warning("dry-run failed for job {}: {}", job.id, exc)
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail=f"dry-run failed: {exc}",
+        ) from exc
+
+    # Phase 1: rule-based verdict — always persisted.
+    rule_risk = _rule_based_risk(rendered_commands)
+    job.risk_assessment = {
+        "level": "dangerous" if rule_risk.is_dangerous else "safe",
+        "factors": [{"matched": cmd} for cmd in rule_risk.matched_patterns[:20]],
+        "ai_comment": None,
+        "blast_radius": {},
+        "warning": format_risk_warning(rule_risk) if rule_risk.is_dangerous else "",
+        "phase": "rule",  # overwritten by phase 2 if AI succeeds
+    }
+    job.requires_approval = rule_risk.require_approval
+    job.risk_assessed_at = _utcnow()
+    job.risk_assessment_error = None
+
+    # Phase 2: AI comment + blast radius — best-effort, never blocks.
+    try:
+        ai_risk = assess_job_risk(
             db,
-            commands=[
-                c
-                for entry in preview["commands_by_device"]
-                for c in entry["commands"]
-            ],
+            commands=rendered_commands,
             device_ids=job.target_device_ids,
             use_llm=True,
         )
+        # Merge the AI-only fields on top of the rule verdict. We do NOT
+        # let the LLM downgrade ``requires_approval`` — that's rule-only.
         job.risk_assessment = {
-            "level": "dangerous" if risk["is_dangerous"] else "safe",
-            "factors": [
-                {"matched": cmd} for cmd in risk["matched_commands"][:20]
-            ],
-            "ai_comment": risk["ai_comment"],
-            "blast_radius": risk["blast_radius"],
-            "warning": risk["warning"],
+            **job.risk_assessment,
+            "ai_comment": ai_risk.get("ai_comment"),
+            "blast_radius": ai_risk.get("blast_radius", {}),
+            "phase": "rule+ai",
         }
-        job.risk_assessed_at = _utcnow()
-        job.requires_approval = risk["requires_approval"]
     except Exception as exc:  # noqa: BLE001
-        logger.warning("risk assessment failed for job {}: {}", job.id, exc)
+        logger.warning("AI risk assessment failed for job {}: {}", job.id, exc)
         job.risk_assessment_error = str(exc)[:1000]
-        job.risk_assessed_at = _utcnow()
 
     try:
         job.rollback_plan = build_rollback_plan(db, job_id=job.id)
@@ -183,7 +216,21 @@ def start_job(job_id: int, _user=Depends(require_operator), db: Session = Depend
     if job.status not in {"draft", "pending", "canceled"}:
         raise HTTPException(status_code=409, detail="job already started")
 
-    # Approval gate: block high-risk jobs without admin approval
+    # Hard rule-layer gate: the rule verdict is ALWAYS written at
+    # create time (it has no external dependencies). If it's missing
+    # we treat the job as un-assessed and refuse to start — this is a
+    # defence-in-depth check for any future code path that forgets
+    # to populate the verdict before reaching this endpoint.
+    if not job.risk_assessment:
+        raise HTTPException(
+            status_code=409,
+            detail="⚠️  Job has no risk assessment — refusing to start. "
+            "Re-create the job so the rule-layer verdict is populated.",
+        )
+
+    # Approval gate: block high-risk jobs without admin approval. The
+    # rule layer is authoritative for ``requires_approval``; the AI
+    # comment can fail without affecting this gate.
     if job.requires_approval and not job.approved_by:
         raise HTTPException(
             status_code=403,

@@ -48,7 +48,15 @@ def _render_per_device(
         except TemplateError_ as exc:
             raise ValueError(f"template render failed: {exc}") from exc
     elif commands:
-        rendered_lines = list(commands)
+        # Accept either a list[str] (the historical dry-run endpoint
+        # shape) or a single multi-line string (the inline-commands
+        # shape used by ``create_job`` via ``params["__inline_commands"]``
+        # — the worker treats it as a multi-line block too, so the risk
+        # scan must).
+        if isinstance(commands, str):
+            rendered_lines = extract_commands(commands)
+        else:
+            rendered_lines = list(commands)
 
     if not device_ids:
         return []

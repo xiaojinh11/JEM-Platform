@@ -1,0 +1,121 @@
+
+----- PAGE 1 -----
+修订记录
+课程代码 适用课程 课程版本
+V08S03C25 数据通信 V008R001
+作者 日期 审核 备注
+李晟 2021/02 王虎/杨旭东 新开发
+李晟 2021/07 王虎/杨旭东 重新修订
+李晟 2022/01 王虎/杨旭东 重新修订
+李晟 2022/08 王虎/杨旭东 重新修订
+李晟 2023/05 王虎/杨旭东 重新修订
+王虎 2024/03 李晟/唐海梅 重新修订
+王虎 2025/04 李晟/唐海梅 重新修订
+王虎 2026/01 李晟/唐海梅 重新修订
+
+
+----- PAGE 2 -----
+DATACOM
+数据通信
+
+
+----- PAGE 3 -----
+多进程
+
+
+----- PAGE 4 -----
+Content
+目
+录
+01 多进程
+
+
+----- PAGE 5 -----
+01
+多进程
+掌握★★★★★
+
+
+----- PAGE 6 -----
+多进程
+
+
+
+----- PAGE 7 -----
+多进程
+多进程示例：
+import paramiko，time,os
+import pandas as pd
+import multiprocessing as mp #导入多进程模块
+#在excel中获取设备信息
+def shebei_xx(file_path): 
+df = pd.read_excel(file_path,sheet_name='IP地址')
+devices=[]
+for index,row in df.iterrows():
+device_name = row['设备名称']
+device_ip = row['IP地址']
+device_user= row['用户名']
+device_password = row['密码']
+device={'name':device_name,'ip':device_ip,'username':device_user,'password':device_password}
+devices.append(device)
+return devices
+
+
+----- PAGE 8 -----
+多进程
+SSH自动登录:
+def ssh_client(devices): #将excel中的设备信息传递至ssh_client(整体传入)
+ip = devices['ip']
+username = devices['username']
+password = devices['password']
+ssh_client = paramiko.SSHClient()
+ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+ssh_client.connect(hostname=ip, username=username, password=password, port=22)
+print(f"设备登录成功 {ip}")
+command = ssh_client.invoke_shell()
+command.send('screen-length 0 temporary\n')
+command.send('disp cur\n')
+time.sleep(2)
+output = command.recv(65535)
+ssh_client.close() 
+return output,ip #值返回给多进程的results中，进程1采集的数据存在进程1的内存里
+
+
+----- PAGE 9 -----
+创建多进程：
+def collect_all(devices, workers=50): #多进程方式，创建50个工作进程（每次使用50个工作进程）
+pool = mp.Pool(workers) #创建进程池
+results = pool.map(ssh_client, devices) #不解包，整体传入给ssh_client函数
+pool.close()
+pool.join()
+return results
+多进程
+
+
+----- PAGE 10 -----
+保存采集的数据：
+def save_config(ip,output): #保存备份数据
+file = r‘C:\Users\Administrator\Desktop\备份\\’+ ip +‘.txt‘            #使用IP地址来命名，也可以添加时间等
+if os.path.exists(file):                                                # 检测文件是否存在，文件存在就删除，不存在就创建
+os.remove(file)
+with open(file,‘w’) as f:                                             # 写入数据保存文件
+f.write(output.replace('\r',''))
+多进程
+
+
+----- PAGE 11 -----
+主函数：
+def main():
+file_path = r'C:\Users\Administrator\Desktop\备份\设备信息表.xlsx'
+devices = shebei_xx(file_path) #调用设备信息函数
+mp_results = collect_all(devices)                               #调用多进程函数，采集的数据都存在进程的内存中
+for output, ip in mp_results:                                      #通过for遍历，取出进程中的数据和IP                                                  
+save_config(ip, output.decode(‘utf-8’, errors=‘ignore’))      #调用保存函数
+print(f"数据采集完成：{ip}")
+if __name__ == '__main__':
+main()
+多进程
+
+
+----- PAGE 12 -----
+

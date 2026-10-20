@@ -54,7 +54,7 @@ def _make_test_app():
     from app.models import (  # noqa: WPS433, F401
         revoked_token, user, device, credential, template,
         job, drift, ai, ai_alert, document, audit, account,
-        adapter, config,
+        adapter, config, health, scheduled_health,
     )
     Base.metadata.create_all(engine)
 
@@ -213,15 +213,16 @@ class JobsDryRunE2ETest(unittest.TestCase):
                 "name": "e2e dangerous job",
                 "kind": "batch_write",
                 "target_device_ids": [self.device_id],
-                "params": {},
+                # B4: API requires one of plan/template_id/params.__inline_commands.
+                "params": {"__inline_commands": "display this"},
             },
         )
         self.assertEqual(resp.status_code, 201, resp.text)
         body = resp.json()
-        # With no inline commands in the create payload the rendered
-        # command list is empty, so risk_assessment should be "safe"
-        # but the rollback plan should still be populated (it's based on
-        # what snapshots will exist, not what currently exists).
+        # ``display this`` is in the dry-run-safe denylist, so risk
+        # should land at "safe" with no approval required, but the
+        # rollback plan should still be populated (it is based on the
+        # snapshot pre-state, not the rendered commands).
         self.assertIsNotNone(body["risk_assessment"])
         self.assertEqual(body["risk_assessment"]["level"], "safe")
         self.assertFalse(body["requires_approval"])
@@ -238,7 +239,7 @@ class JobsDryRunE2ETest(unittest.TestCase):
                 "name": "rollback target",
                 "kind": "batch_write",
                 "target_device_ids": [self.device_id],
-                "params": {},
+                "params": {"__inline_commands": "display this"},
             },
         )
         self.assertEqual(create.status_code, 201, create.text)
@@ -265,7 +266,7 @@ class JobsDryRunE2ETest(unittest.TestCase):
                 "name": "compare target",
                 "kind": "batch_write",
                 "target_device_ids": [self.device_id],
-                "params": {},
+                "params": {"__inline_commands": "display this"},
             },
         )
         self.assertEqual(create.status_code, 201, create.text)

@@ -1,0 +1,96 @@
+# ============================================================
+# JEM Platform — ignore rules
+# ============================================================
+
+# --- Secrets: NEVER commit ---
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.local
+backend/.env.production
+**/.env.backup.*
+**/known_hosts
+**/id_rsa*
+**/id_ed25519*
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+*.sql
+
+# --- Backend ---
+backend/.venv/
+.venv/
+venv/
+backend/**/__pycache__/
+**/__pycache__/
+*.pyc
+backend/storage/
+storage/
+naw_storage/
+pgdata/
+backend/*.db
+backend/*.sqlite
+*.db
+*.sqlite
+*.db-journal
+*.db-wal
+*.db-shm
+*.db.bak
+*.db.bak.*
+*.bak
+*.backup.*
+dump.rdb
+
+# --- Frontend ---
+frontend/node_modules/
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# --- Logs ---
+*.log
+*.out
+*.err
+backend/backend.uvicorn.log
+frontend/frontend.log
+frontend/vite.log
+frontend/frontend_now.out
+frontend/frontend_now.err
+backend/backend_now.out
+backend/backend_now.err
+
+# --- Agent scratch files (temporary inspection scripts) ---
+.tmp_*.py
+*.tmp.py
+
+# --- Tests / tooling caches ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# --- Worktrees ---
+.worktrees/
+
+# --- Editor ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*.backup
+*.backup.*
+*.bak
+*.orig
+*.tmp
+tmp_*.txt
+*_serve_spa.py
+*Page.vue.backup
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+desktop.ini

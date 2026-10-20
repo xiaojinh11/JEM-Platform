@@ -1,0 +1,202 @@
+/* ============================================================
+ * JellyRadio — themed segment control
+ *
+ * All colors come from the host theme. We only encode *semantics*
+ * here (chip surface vs active surface vs focus ring), never
+ * literal hex values, so the control inherits whatever theme is
+ * active and never looks "imported".
+ *
+ * Design intent:
+ *  - The whole control reads as ONE object, not five buttons.
+ *    Chips are flush against each other with only a hairline gap;
+ *    the container holds the ambient surface tone.
+ *  - The active chip is identified purely by its lift (shadow,
+ *    tone shift) and motion. Background colour flips instantly,
+ *    so the eye reads position change, not colour change.
+ *  - Focus ring uses the theme accent at low opacity so it
+ *    integrates with the rest of the app's keyboard treatment.
+ * ============================================================ */
+
+.jelly-radio {
+  /* Defaults that read from the host theme; all are overridable
+     via inline style on the wrapper when a consumer wants
+     custom colours. */
+  --jr-chip: var(--bg-elev);
+  --jr-active: var(--bg-canvas);
+  --jr-text: var(--text-3);
+  --jr-active-text: var(--text-1);
+  --jr-accent: var(--accent);
+
+  --jr-gap: 2px;
+  --jr-radius: var(--radius-md);
+  --jr-h: 30px;
+  --jr-font: 12.5px;
+  --jr-px: 12px;
+
+  /* Padding that grows inward as the active chip swells, so the
+     container itself never has to resize. The TS sets these from
+     measured chip widths. */
+  --jr-pad-x: 6px;
+  --jr-pad-y: 4px;
+
+  /* Container tone — slightly elevated from the page so the
+     segmented control reads as a unit. We blur + saturate
+     imperceptibly so it doesn't compete with cards. */
+  --jr-shell-bg: color-mix(in oklab, var(--bg-elev) 80%, transparent);
+
+  display: inline-flex;
+  align-items: center;
+  gap: 0; /* we paint the gap on the chip itself, not as flex gap */
+  padding: var(--jr-pad-y) var(--jr-pad-x);
+  background: var(--jr-shell-bg);
+  border: 1px solid color-mix(in oklab, var(--border-1) 70%, transparent);
+  border-radius: calc(var(--jr-radius) + 4px);
+  box-shadow: inset 0 1px 0 color-mix(in oklab, white 4%, transparent);
+
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+
+  /* Container-level transitions are intentionally rare; we want
+     only the chips to feel kinetic. */
+  transition: border-color 240ms ease;
+}
+
+.jelly-radio[data-disabled] {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.jelly-radio__chip {
+  position: relative;
+  margin: 0 var(--jr-gap) 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  outline: none;
+  transform-origin: 50% 50%;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.jelly-radio__chip:last-child {
+  margin-right: 0;
+}
+
+.jelly-radio__chip[data-on='true'] {
+  cursor: default;
+}
+
+.jelly-radio:not([data-disabled]) .jelly-radio__chip:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.jelly-radio__chip:focus-visible {
+  /* Soft accent halo, never the browser default rectangle. */
+  outline: none;
+}
+
+.jelly-radio__chip:focus-visible .jelly-radio__skin {
+  box-shadow:
+    0 0 0 2px color-mix(in oklab, var(--jr-accent) 50%, transparent),
+    0 0 0 4px color-mix(in oklab, var(--jr-accent) 14%, transparent);
+}
+
+.jelly-radio__skin {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4em;
+  height: var(--jr-h);
+  padding: 0 var(--jr-px);
+  border-radius: var(--jr-radius);
+  overflow: hidden;
+  background: transparent; /* the chip is the *label* — the container holds the tone */
+  color: var(--jr-text);
+  font-family: var(--font-sans);
+  font-size: var(--jr-font);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  white-space: nowrap;
+
+  /* Colour transitions are imperceptible on purpose. The kinetic
+     story is told by position/scale, not by background flashing. */
+  transition:
+    color 180ms ease,
+    box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Subtle hover wash for unselected chips — much gentler than
+   the original 0.11 overlay, and only on fine pointers. */
+.jelly-radio__skin::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--jr-text);
+  opacity: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  transition: opacity 200ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .jelly-radio__chip[data-on='false']:not(:disabled):hover .jelly-radio__skin::before {
+    opacity: 0.06;
+  }
+}
+
+/* Active chip — the visual centrepiece.
+   - Slightly lighter surface (lifts off the shell)
+   - Crisp 1px shadow that makes it feel like a physical tile
+   - Text weight nudges up to feel "decided"
+   - NO background transition: snap to active so colour read
+     follows position read. */
+.jelly-radio__chip[data-on='true'] .jelly-radio__skin {
+  background: var(--jr-active);
+  color: var(--jr-active-text);
+  font-weight: 600;
+  box-shadow:
+    0 1px 0 color-mix(in oklab, white 6%, transparent) inset,
+    0 1px 2px color-mix(in oklab, black 18%, transparent),
+    0 1px 4px color-mix(in oklab, black 10%, transparent);
+}
+
+/* Light theme active chip: drop the inset highlight (white-on-white
+   reads as dirty) and use a crisper outer shadow instead. */
+:root[data-theme='light'] .jelly-radio__chip[data-on='true'] .jelly-radio__skin {
+  box-shadow:
+    0 1px 0 color-mix(in oklab, white 100%, transparent) inset,
+    0 1px 2px color-mix(in oklab, var(--border-2) 50%, transparent),
+    0 1px 4px color-mix(in oklab, var(--border-1) 60%, transparent);
+}
+
+/* Lighter touch feedback than a full press-down — a soft
+   settle-into-place rather than a button click. */
+.jelly-radio__chip:active:not([data-on='true']) .jelly-radio__skin {
+  transform: scale(0.985);
+}
+
+.jelly-radio__icon {
+  display: inline-flex;
+  /* Icons inside unselected chips dim with the text. */
+  opacity: 0.85;
+}
+
+.jelly-radio__chip[data-on='true'] .jelly-radio__icon {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jelly-radio__chip:active:not([data-on='true']) .jelly-radio__skin {
+    transform: none;
+  }
+  .jelly-radio__skin {
+    transition: none;
+  }
+}

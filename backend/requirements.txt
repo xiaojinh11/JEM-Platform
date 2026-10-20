@@ -1,0 +1,43 @@
+# Web 框架
+fastapi>=0.115
+uvicorn[standard]>=0.32
+pydantic>=2.10
+pydantic-settings>=2.7
+
+# 数据库 / 迁移
+SQLAlchemy>=2.0
+alembic>=1.14
+psycopg2-binary>=2.9          # 生产（Postgres）
+asyncpg>=0.30                 # 可选异步
+kuzu>=0.11                    # 嵌入式图数据库（实体关系可视化）
+
+# 缓存 / 队列
+redis>=5.2
+celery>=5.4
+
+# 网络设备交互
+paramiko>=3.5
+netmiko>=4.4
+
+# 安全
+cryptography>=44              # Fernet + paramiko host keys
+passlib[bcrypt]>=1.7
+bcrypt>=3.2,<4.0              # passlib 1.7 与 bcrypt 4+ 不兼容（__about__ 移除）
+python-jose[cryptography]>=3.3  # JWT
+python-multipart>=0.0.20      # 文件上传
+
+# 配置 / 工具
+python-dotenv>=1.0
+httpx>=0.28                   # FastAPI 测试 + HTTP 客户端
+websockets>=14                # WebSSH 后端
+tenacity>=9.0                 # SSH 重试
+loguru>=0.7                   # 结构化日志
+pyyaml>=6.0
+
+# 业务
+jinja2>=3.1                   # 配置模板渲染（StrictUndefined）
+markdown>=3.7                 # 手册渲染
+Whoosh>=2.7                   # 手册全文搜索
+diff_match_patch>=20241021    # 统一 diff 算法（underscore 版本）
+chardet>=5.2                  # 文本编码探测
+openpyxl>=3.1                 # 健康快照 XLSX 导出

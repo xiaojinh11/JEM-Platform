@@ -1,0 +1,111 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: naw
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: naw
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U naw"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://naw:${POSTGRES_PASSWORD}@postgres:5432/naw
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/2
+      STORAGE_ROOT: /app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - naw_storage:/app/storage
+    ports:
+      - "8000:8000"
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+
+  worker:
+    build: ./backend
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://naw:${POSTGRES_PASSWORD}@postgres:5432/naw
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/2
+      STORAGE_ROOT: /app/storage
+    depends_on:
+      backend:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    volumes:
+      - naw_storage:/app/storage
+    command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=INFO", "--concurrency=4"]
+
+  # ── v1.7: dedicated Beat process ────────────────────────────────────
+  # The Beat process is the *scheduler*: it doesn't run any
+  # tasks itself, it just dispatches the periodic tasks declared
+  # in ``app.workers.celery_app.beat_schedule`` to the ``worker``
+  # queue.  See ``COLLECTION_PATTERNS.md`` section 7 for the
+  # why-not-per-plan-Beat-entry rationale.
+  #
+  # IMPORTANT: keep exactly ONE beat replica in the cluster.  Two
+  # beat processes would double-dispatch every periodic task
+  # (``health-scheduled-sweep-every-60s`` etc.) on every tick.
+  beat:
+    build: ./backend
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://naw:${POSTGRES_PASSWORD}@postgres:5432/naw
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/2
+      STORAGE_ROOT: /app/storage
+    depends_on:
+      worker:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=INFO"]
+    # The Beat process keeps its schedule file in /tmp.  In
+    # production we'd mount a persistent volume here so a
+    # container restart doesn't double-fire any in-flight entries.
+    # For now /tmp is fine: at worst a restart causes a 1-minute
+    # repeat of the health-sweep, which is idempotent (rows are
+    # re-written, not duplicated).
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
+  naw_storage:

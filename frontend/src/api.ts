@@ -331,13 +331,30 @@ export interface AIChatMessage {
   tool_call_id?: string | null
   tokens_used?: number | null
   created_at?: string
+  /** Optional plan attached to an assistant turn. Set only when the
+   * LLM invoked ``propose_config_plan`` during the turn. The plan
+   * payload matches ``AIProposedPlan``. */
+  ai_plan?: AIProposedPlan | null
 }
 export interface AIChatResponse {
   ok?: boolean
   reply?: string
   error?: string
   tokens?: number
+  /** If the LLM invoked ``propose_config_plan`` during this turn,
+   * the resolved plan arrives here so the frontend can offer a
+   * single "Dry-Run this AI plan" button. */
+  plan?: AIProposedPlan | null
   tools_used?: { tool: string; ok: boolean; ms: number }[]
+  reasoning_trace?: unknown
+}
+export interface AIProposedPlan {
+  commands: string[]
+  vendor: string
+  notes: string[]
+  summary: string
+  source: 'ai_chat'
+  session_id: string
 }
 export interface AIAgentLog {
   id: number
@@ -350,6 +367,47 @@ export interface AIAgentLog {
   error: string | null
   duration_ms: number
   created_at: string
+}
+
+export interface HealthSnapshot {
+  id: number
+  device_id: number
+  collected_at: string
+  vendor: string
+  cpu_pct: number | null
+  mem_pct: number | null
+  temp_c: number | null
+  fan_state: string | null
+  power_w: number | null
+  source: string
+  errors: string[] | null
+  // v1.7 new fields
+  optical?: { port: string; rx_dbm: number | null; tx_dbm: number | null }[]
+  config_fingerprint?: string | null
+  config_lines?: number | null
+  config_excerpt?: string | null
+  metrics_run?: string[] | null
+}
+export interface HealthCollectResponse {
+  mode: 'all' | 'targeted'
+  devices: number
+  task_ids: string[]
+}
+
+// ── Health schedules (v1.7) ────────────────────────────────────────
+export interface HealthSchedule {
+  id: number
+  name: string
+  interval_minutes: number
+  device_ids: number[]
+  metrics: string[]
+  enabled: boolean
+  last_fired_at: string | null
+  next_run_at: string | null
+  description: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string | null
 }
 
 export const api = {
@@ -371,6 +429,8 @@ export const api = {
   listDevices: (params: Record<string, unknown> = {}) => http.get('/devices', { params }).then((r) => r.data),
   getDevice: (id: number) => http.get(`/devices/${id}`).then((r) => r.data),
   createDevice: (data: unknown) => http.post('/devices', data).then((r) => r.data),
+  updateDevice: (id: number, data: Record<string, unknown>) =>
+    http.patch(`/devices/${id}`, data).then((r) => r.data),
   deleteDevice: (id: number) => http.delete(`/devices/${id}`).then((r) => r.data),
   importCsv: (file: File, defaultVendor: string) => {
     const fd = new FormData()
@@ -439,13 +499,90 @@ export const api = {
 
   listJobs: () => http.get('/jobs').then((r) => r.data),
   getJob: (id: number) => http.get(`/jobs/${id}`).then((r) => r.data),
-  createJob: (data: unknown) => http.post('/jobs', data).then((r) => r.data),
+  createJob: (data: {
+    name: string
+    kind: 'batch_read' | 'batch_write' | 'template_apply' | 'collection'
+    target_device_ids: number[]
+    template_id?: number
+    params?: Record<string, unknown>
+    note?: string
+    batch_size?: number
+    /**
+     * Custom commands to run on every target device.  Required for
+     * kind="batch_read" to actually collect anything other than the
+     * hardcoded "display current-configuration" fallback.  See
+     * api/v1/jobs.py:create_job for the resolution order.
+     */
+    commands?: string[]
+  }) => http.post('/jobs', data).then((r) => r.data),
   startJob: (id: number) => http.post(`/jobs/${id}/start`).then((r) => r.data),
   cancelJob: (id: number) => http.post(`/jobs/${id}/control`, { action: 'cancel' }).then((r) => r.data),
-  dryRunJob: (payload: { commands?: string[]; template_id?: number; params?: Record<string, unknown>; device_ids?: number[] }) =>
-    http.post('/jobs/dry-run', payload).then((r) => r.data),
+  /**
+   * Delete a job.  Returns 204 No Content on success, 409 if the job
+   * is still running (operator must cancel first), 404 if the job
+   * is already gone.  The whole row + its step records are removed
+   * in a single transaction; the deletion is recorded in the audit
+   * log before commit.
+   */
+  deleteJob: (id: number) => http.delete(`/jobs/${id}`).then((r) => r.data),
+  /** Custom command collection (migrated from PythonProject5).
+   * Lets an operator paste a list of ``display``-style commands and
+   * have them run on every selected device, with the per-(device,
+   * command) output landing in the standard ``config_revisions``
+   * table.  Returns the same ``celery_task_id``-style envelope the
+   * health / jobs endpoints use, so the UI can poll the existing
+   * job-stream WebSocket. */
+  collectCommands: (data: {
+    device_ids: number[]
+    commands: string[]
+    name?: string
+    note?: string
+  }) => http.post('/commands/collect', data).then((r) => r.data),
+  listCommandCollectJobs: (limit = 50) =>
+    http.get('/commands/jobs', { params: { limit } }).then((r) => r.data),
+  exportCommandCollect: (jobId: number) =>
+    http.get(`/commands/jobs/${jobId}/export`, { responseType: 'blob' }).then((r) => r.data),
+  /**
+   * Dry-run accepts a ``plan`` block (preferred) OR legacy fields. The
+   * frontend always sends ``plan`` now so Dry-Run sees the same
+   * commands the Worker will execute.
+   */
+  dryRunJob: (
+    payload: {
+      plan?: Record<string, unknown>;
+      commands?: string[];
+      template_id?: number;
+      params?: Record<string, unknown>;
+      device_ids?: number[];
+    }
+  ) => http.post('/jobs/dry-run', payload).then((r) => r.data),
   rollbackPlan: (id: number) => http.post(`/jobs/${id}/rollback-plan`).then((r) => r.data),
   aiCompareJob: (id: number) => http.post(`/jobs/${id}/ai-compare`).then((r) => r.data),
+  /** Save ``/jobs/{id}/errors.csv`` to disk via a hidden ``<a>`` tag.
+   * Mirrors the style of ``exportData`` for the bulk-export scope so
+   * the whole app has one consistent way to hand a file to the OS. */
+  exportJobErrors: async (jobId: number): Promise<{ rows: number; filename: string }> => {
+    const resp = await http.get(`/jobs/${jobId}/errors.csv`, { responseType: 'blob' })
+    const blob = resp.data as Blob
+    const disposition = resp.headers['content-disposition'] as string | undefined
+    const fnMatch = disposition?.match(/filename\*?=['"]?(?:UTF-8'')?([^;\n"']+)/i)
+    const filename = fnMatch ? fnMatch[1] : `naw-job-${jobId}-errors.csv`
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = decodeURIComponent(filename)
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    // The CSV body has a header row + N error rows.  We parse the
+    // header + first row to confirm the format and then re-derive
+    // ``rows`` from the blob size in bytes — cheap and avoids a
+    // second fetch.  If the body is header-only, ``rows`` stays 0.
+    const text = await blob.text()
+    const lines = text.split(/\r?\n/).filter((l) => l.length > 0)
+    return { rows: Math.max(0, lines.length - 1), filename: decodeURIComponent(filename) }
+  },
 
   listAdapters: () => http.get('/system/adapters').then((r) => r.data),
   health: () => http.get('/system/health').then((r) => r.data),
@@ -461,6 +598,55 @@ export const api = {
   driftTriggerScanOne: (deviceId: number) => http.post(`/drift/scan/${deviceId}`).then((r) => r.data),
   driftSetBaseline: (deviceId: number, revisionId?: number) =>
     http.post(`/drift/devices/${deviceId}/baseline`, { revision_id: revisionId ?? null }).then((r) => r.data),
+
+  // ── Health (lightweight per-device metrics) ──────────────────────────
+  healthCollect: (deviceIds?: number[], metrics?: string[]) =>
+    http.post<HealthCollectResponse>('/health/collect',
+      { device_ids: deviceIds ?? [], metrics: metrics ?? [] }).then((r) => r.data),
+
+  // v1.7: snapshot list / export
+  healthSnapshots: (params: { device_id?: number; limit?: number; offset?: number; metric?: string } = {}) =>
+    http.get<HealthSnapshot[]>('/health/snapshots', { params }).then((r) => r.data),
+  /**
+   * Fetch a single snapshot for the "查看" detail dialog.  Returns
+   * the full row including raw_excerpt / config_excerpt / optical /
+   * errors — the fields that are too wide to fit in the snapshot
+   * list table.
+   */
+  healthSnapshot: (id: number) =>
+    http.get<HealthSnapshot>(`/health/snapshots/${id}`).then((r) => r.data),
+
+  healthExport: async (snapshotId: number, format: 'csv' | 'xlsx' | 'txt' = 'csv', filename?: string) => {
+    const resp = await http.get(`/health/snapshots/${snapshotId}/export`, {
+      params: { format, filename },
+      responseType: 'blob',
+    })
+    const blob = resp.data as Blob
+    const disposition = resp.headers['content-disposition'] as string | undefined
+    const fnMatch = disposition?.match(/filename\*?=['"]?(?:UTF-8'')?([^;\n"']+)/i)
+    const fn = fnMatch ? fnMatch[1] : `health-snapshot-${snapshotId}.${format}`
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = decodeURIComponent(fn)
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  },
+
+  // v1.7: schedule CRUD
+  healthSchedules: () =>
+    http.get<HealthSchedule[]>('/health/schedules/').then((r) => r.data),
+  healthSchedulesCreate: (data: {
+    name: string; interval_minutes: number; device_ids?: number[];
+    metrics?: string[]; enabled?: boolean; description?: string;
+  }) =>
+    http.post<HealthSchedule>('/health/schedules/', data).then((r) => r.data),
+  healthSchedulesDelete: (id: number) =>
+    http.delete(`/health/schedules/${id}`).then((r) => r.data),
+  healthSchedulesRun: (id: number) =>
+    http.post<HealthSchedule>(`/health/schedules/${id}/run`).then((r) => r.data),
 
   // ── AI Agent ──────────────────────────────────────────
   aiGetConfig: () => http.get<AIConfig>('/ai/config').then((r) => r.data),
@@ -489,6 +675,59 @@ export const api = {
     http.delete('/ai/history', { params: { scope, session_id: sessionId } }).then((r) => r.data),
   aiAgentLogs: (limit = 50) => http.get<AIAgentLog[]>('/ai/agent-logs', { params: { limit } }).then((r) => r.data),
 
+  // ── Short-term session memory (per-user) ──
+  aiGetMemory: (sessionId: string, scope = 'chat') =>
+    http.get<{ facts: Record<string, unknown>; session_id: string; scope: string }>(
+      '/ai/memory',
+      { params: { session_id: sessionId, scope } },
+    ).then((r) => r.data),
+  aiRecallMemory: (sessionId: string, key: string, scope = 'chat') =>
+    http.get<{ key: string; value: unknown; found: boolean }>(
+      '/ai/memory/recall',
+      { params: { session_id: sessionId, scope, key } },
+    ).then((r) => r.data),
+  aiPutMemory: (
+    payload: {
+      session_id: string
+      scope?: string
+      key: string
+      value: Record<string, unknown>
+      memory_type?: string
+      source?: string
+      force?: boolean
+    },
+  ) => http.put<{ ok: boolean; conflict?: boolean; key: string; value: Record<string, unknown> }>('/ai/memory', payload).then((r) => r.data),
+  aiDeleteMemory: (sessionId: string, key: string | null, scope = 'chat') =>
+    http.delete<{ cleared: number; key?: string; scope?: string }>(
+      '/ai/memory',
+      { params: { session_id: sessionId, scope, key: key ?? null } },
+    ).then((r) => r.data),
+
+  // ── Long-term user preferences ──
+  aiGetPreferences: () =>
+    http.get<{
+      preferences: {
+        default_group: string | null
+        preferred_vendors: string[]
+        alert_keywords: string[]
+        custom_prompts: Record<string, string>
+      }
+    }>('/ai/preferences').then((r) => r.data),
+  aiPutPreferences: (payload: {
+    default_group?: string | null
+    preferred_vendors?: string[]
+    alert_keywords?: string[]
+    custom_prompts?: Record<string, string>
+  }) =>
+    http.put<{
+      preferences: {
+        default_group: string | null
+        preferred_vendors: string[]
+        alert_keywords: string[]
+        custom_prompts: Record<string, string>
+      }
+    }>('/ai/preferences', payload).then((r) => r.data),
+
   // ── AI Scripts ────────────────────────────────────────
   aiListScripts: (params: Record<string, unknown> = {}) =>
     http.get('/ai/scripts', { params }).then((r) => r.data),
@@ -500,6 +739,11 @@ export const api = {
   aiDeleteScript: (id: number) => http.delete(`/ai/scripts/${id}`).then((r) => r.data),
   aiListScriptRuns: (id: number, limit = 20) =>
     http.get(`/ai/scripts/${id}/runs`, { params: { limit } }).then((r) => r.data),
+  /** AST-only extraction: converts an uploaded Python script into a
+   * ConfigPlan so the user can preview / Dry-Run it without ever
+   * executing the script. */
+  aiExtractScriptPlan: (id: number, device_ids: number[] = []) =>
+    http.post(`/ai/scripts/${id}/extract-plan`, { device_ids }).then((r) => r.data),
 
   // ── graph (entity-relationship visualisation) ──────────────────
   graphStats: () => http.get('/graph/stats').then((r) => r.data),
@@ -553,12 +797,15 @@ export const api = {
     const token = readToken()
     if (!token) throw new Error('not authenticated')
     const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const proto = `naw-token,${encodeURIComponent(token)}`
+    // Pass JWT as a query param: the browser rejects custom subprotocol
+    // values (RFC 6455 only allows registered tokens), and the backend's
+    // `/api/v1/ws/ssh/{device_id}` already accepts `?token=<jwt>` and
+    // validates it BEFORE accepting the WebSocket upgrade.
     const params = new URLSearchParams()
+    params.set('token', token)
     if (options.endpointId) params.set('endpoint_id', String(options.endpointId))
     if (options.credentialId) params.set('credential_id', String(options.credentialId))
-    const query = params.toString()
-    const url = `${scheme}//${location.host}/api/v1/ws/ssh/${deviceId}${query ? '?' + query : ''}`
-    return new WebSocket(url, [proto])
+    const url = `${scheme}//${location.host}/api/v1/ws/ssh/${deviceId}?${params.toString()}`
+    return new WebSocket(url)
   },
 }

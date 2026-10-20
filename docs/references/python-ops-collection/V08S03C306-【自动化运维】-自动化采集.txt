@@ -1,0 +1,218 @@
+
+----- PAGE 1 -----
+修订记录
+课程代码 适用课程 课程版本
+V08S03C24 数据通信 V008R001
+作者 日期 审核 备注
+李晟 2021/02 王虎/杨旭东 新开发
+李晟 2021/07 王虎/杨旭东 重新修订
+李晟 2022/01 王虎/杨旭东 重新修订
+李晟 2022/08 王虎/杨旭东 重新修订
+李晟 2023/05 王虎/杨旭东 重新修订
+王虎 2024/03 李晟/唐海梅 重新修订
+王虎 2025/04 李晟/唐海梅 重新修订
+王虎 2026/01 李晟/唐海梅 重新修订
+
+
+----- PAGE 2 -----
+DATACOM
+数据通信
+
+
+----- PAGE 3 -----
+自动化采集
+
+
+----- PAGE 4 -----
+Content
+目
+录
+01 正则表达式
+02 RE模块
+03 应用实验
+
+
+----- PAGE 5 -----
+01
+正则表达式
+掌握★★★★★
+
+
+----- PAGE 6 -----
+正则表达式
+数通设备包含正则表达式命令，在支持正则表达式的命令中，有三种过滤方式可供选择：
+disp cur | begin regular-expression：输出以匹配指定正则表达式的行开始的所有行。
+disp cur | exclude regular-expression：输出不匹配指定正则表达式的所有行。
+disp cur | include regular-expression：只输出匹配指定正则表达式的所有行
+说明：regular-expression为字符串（不包括中文）形式，长度范围是1～255
+
+
+----- PAGE 7 -----
+正则表达式
+
+
+
+----- PAGE 8 -----
+正则表达式
+Python正则表达式
+
+
+
+----- PAGE 9 -----
+正则表达式
+Python正则表达式
+
+
+
+----- PAGE 10 -----
+02
+RE模块
+掌握★★★★★
+
+
+----- PAGE 11 -----
+RE模块
+Python中re模块主要功能是通过正则表达式是用来匹配处理字符串
+re.findall()：
+浏览全部字符串，匹配所有合规则的字符串，匹配到的字符串放到一个列表中，未匹配成功返回空列表
+注意： 一旦匹配成，再次匹配，是从前一次匹配成功的，后面一位开始的，也可以理解为匹配成功的字符串，不在参
+与下次匹配
+import re #引入模块
+str_1 = ‘www.sichuannuoheng.com’ #定义一个字符串
+s1 = re.findall(‘si\w*’,str_1) #匹配‘si’后面的所有字母和数字
+print(s1) #s1为[‘chuannuoheng’]
+
+
+----- PAGE 12 -----
+捕获组数量 返回值类型
+0个（无括号） 返回所有完整匹配的字符串列表
+1个 返回每个匹配中该组内容的列表
+2个及以上 返回元组，每个元组包含各组的内容，并形成列表
+RE模块
+当正则表达式中有捕获组 () 时，findall() 的返回值规则如下：
+sys_name = re.findall(‘<(\S+)>’,conf_res)，其中（\S+）为捕获组
+例如：
+findall() 有3个 () 捕获组，就自动把每次匹配到的3个值打包成一个元组，所有匹配结果再组成一个列表返回。
+
+
+----- PAGE 13 -----
+03
+应用实验
+掌握★★★★★
+
+
+----- PAGE 14 -----
+应用实验
+采集设备健康信息
+实验要求：
+1. disp health，disp version查看路由器健康信息
+2. 采集信息：
+• 设备名称
+• 设备版本
+• 温度：温度正/异常,当前温度0℃(0~74)
+• 风扇：风扇正/异常,状态为AUTO/XXXX
+• 功率：当前功率XXW,额定功率XXW
+• CPU：CPU正/异常,当前利用率13%(80%)
+• 内存：内存正/异常,取当前利用率79%(120/152)
+• 硬盘：硬盘正/异常,利用率为28%(299/1065)
+3. 结果保存到Excel
+
+
+
+----- PAGE 15 -----
+应用实验
+设备名称及版本采集
+代码：
+sys_name = re.findall(‘<(\S+)>’,conf_res)[0] #查找<>括号里面不为空格的值，且只输出<>里面的内容
+dev_ver = re.findall(‘VRP.* (V\d+R\d+C\d+)’,conf_res)[0] #查找VRP后面，结构为V数字R数字C数字的值并输出它
+特征值：
+版本格式固定： V数字R数字C数字
+设备名称固定： <xxxxxxxxxxxx>
+
+
+----- PAGE 16 -----
+应用实验
+温度采集
+代码：
+tem_info = re.findall(‘TEMP.*’,conf_res)[0].split()
+tem_upper,temp_lower,temp_now = tem_info[2], tem_info[3], tem_info[4]
+特征值：
+最高温度 最低温度 当前温度真机设备中，会有多个温度采集点，不同位置采集点温度范围也不同
+因此，采集结果要采集出当前温度（最低~最高温度）
+split() 将字符串按指定分隔符拆分为子字符串，返回列表
+split() 括号里为空，默认按空格拆分
+split(‘.’) 按’.’来拆分，例如’1.2.3.4’.split(‘.’) 结果为:[‘1’,’2’,’3’,’4’]
+万年场-WN-BAS01(218.200.238.248)_20231018_094319.log
+
+
+----- PAGE 17 -----
+应用实验
+风扇采集
+代码：
+conf_res = conf_res.replace('\n------------------------------------------------------------------\n','')
+fan_info = re.findall('FanNum.*',conf_res)[0].split()[-1]
+特征值：
+特征值和采集值不在同一行（以\r\n分行，re.findall无法跨行匹配）
+replace(a,b) 将字符串里的a替换成b
+
+
+----- PAGE 18 -----
+应用实验
+CPU采集
+代码：
+conf_res = conf_res.replace('\n-----------------------------------------------------------------------\n','')
+cpu_info = re.findall('CPU Usage  Upper Limit.*',conf_result)[0].replace('%','').split()
+特征值：
+特征值和结果不在同一行
+
+
+----- PAGE 19 -----
+应用实验
+内存采集
+代码：
+men_info = re.findall(‘Used Memory.*Upper Limit(.*)',conf_result)[0].replace('%','').split()
+特征值：
+特征值和结果不在同一行
+
+
+----- PAGE 20 -----
+应用实验
+功率采集
+代码：
+power_info = re.findall('power is : (\d+)',conf_result)
+totol_power,cur_power = power_info[0], power_info[1]
+特征值：
+功率需要当前和额定（总）功率，用于电源规划设计和运维板卡扩容使用
+
+
+----- PAGE 21 -----
+应用实验
+硬盘采集
+代码：
+disk_info = re.findall('flash:.*',conf_result)[0].split()
+特征值：
+
+
+----- PAGE 22 -----
+应用实验
+收发光采集
+Current Rx Power(dBM)                    :-6.99
+Current Tx Power(dBM)                    :-6.26
+代码：
+re_match = r'Current\s+Rx\s+Power\(dBM\)\s*:?(\S+).*?Current\s+Tx\s+Power\(dBM\)\s*:?(\S+)'
+ports = re.findall(re_match,shuju,re.S)     #findall默认不跨行匹配，使用re.S使其跨行匹配
+
+
+----- PAGE 23 -----
+应用实验
+保存到Excel
+result_health = [now_data,sys_name,device_version,temp_now,fan,cpu_usage,memory_used,disk_used]
+excel_path = rf'C:\Users\Administrator\Desktop\设备健康数据_{data_excel}.xlsx'
+df = pd.DataFrame([result_health], columns=['采集时间','设备名称', '版本信息', '当前温度', '风扇状态', 'CPU使用率', '内存使用量', '
+硬盘使用量'])
+df.to_excel(excel_path, index=False)
+print(f"数据已成功保存到 {excel_path} 文件！")
+
+
+----- PAGE 24 -----
+

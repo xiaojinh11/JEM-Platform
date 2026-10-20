@@ -1,0 +1,253 @@
+
+----- PAGE 1 -----
+修订记录
+课程代码 适用课程 课程版本
+V08S03C23 数据通信 V008R001
+作者 日期 审核 备注
+李晟 2021/02 王虎/杨旭东 新开发
+李晟 2021/07 王虎/杨旭东 重新修订
+李晟 2022/01 王虎/杨旭东 重新修订
+李晟 2022/08 王虎/杨旭东 重新修订
+李晟 2023/05 王虎/杨旭东 重新修订
+王虎 2024/03 李晟/唐海梅 重新修订
+王虎 2025/04 李晟/唐海梅 重新修订
+王虎 2026/01 李晟/唐海梅 重新修订
+
+
+----- PAGE 2 -----
+DATACOM
+数据通信
+
+
+----- PAGE 3 -----
+Paramiko
+
+
+----- PAGE 4 -----
+学习目标
+学完本课程后，您将能够学习：
+掌握SSH登录的代码
+
+
+----- PAGE 5 -----
+Content
+目
+录
+01 Paramiko
+02 netmiko
+03 数据存储
+
+
+----- PAGE 6 -----
+01
+Paramiko
+掌握★★★★★
+
+
+----- PAGE 7 -----
+Paramiko
+Paramiko是一个Python库，主要用于SSHv2协议的连接，支持远程命令执行、文件传输等功能。核心功能包括SSH客户
+端和SFTP客户端。可以用于自动化运维、批量管理服务器等场景。
+安装paramiko模块：
+pip install paramiko==4.0.0  （官方地址安装，安装速度比较慢）
+pip install paramiko -i https://pypi.tuna.tsinghua.edu.cn/simple （国内镜像源安装方式）
+
+
+----- PAGE 8 -----
+Paramiko
+基本使用方法：
+导入模块：
+import paramiko #导入模块
+建立连接：
+ssh_client = paramiko.SSHClient()   #创建SSH客户端
+ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())   #添加主机密钥
+ssh_client.connect(hostname=ip,username=username,password=passwd,port=22)  #连接设备
+建立交互式窗口：
+commad = ssh_client.invoke_shell()     #创建交互式窗口
+commad.send(‘disp cur\n’)                  #发送数据
+读取数据：
+output = commad.recv(65535)
+print(output.decode('ascii'))
+ssh_client.close #关闭ssh连接
+
+
+----- PAGE 9 -----
+Paramiko
+import paramiko, getpass
+import time
+ip = '192.168.110.1'
+username =input('username: ')
+passwd = getpass.getpass('password: ')
+ssh_client = paramiko.SSHClient()
+ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+ssh_client.connect(hostname=ip,username=username,password=passwd,port=22)
+print("设备登录成功",ip)
+commad = ssh_client.invoke_shell()
+commad.send('disp ip int br\n')
+time.sleep(2)
+output = commad.recv(65535)
+print(output.decode('ascii'))
+ssh_client.close
+完整数据：
+
+
+----- PAGE 10 -----
+Paramiko
+Paramiko函数
+SSH连接模块：
+def ssh_client(device_info):
+device_name = device_info['name']
+device_ip = device_info['ip']
+device_user = device_info['username']
+device_passwd = device_info['password']
+ssh_client = paramiko.SSHClient()
+ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+ssh_client.connect(hostname=device_ip,username=device_user,password=device_passwd)
+print(f"设备登录成功：{device_ip}")
+command = ssh_client.invoke_shell()
+command.send('disp ip int br \n')
+time.sleep(1)
+output = command.recv(65535) .decode('ascii')
+return output
+
+
+----- PAGE 11 -----
+Paramiko
+完成SSH自动化配置工具
+
+
+----- PAGE 12 -----
+02
+Netmiko
+掌握★★★★★
+
+
+----- PAGE 13 -----
+Netmiko 是基于 Paramiko 构建的多厂商网络设备自动化管理库，专为网络设备（交换机、路由器、防火墙等）的
+CLI 自动化而设计。Netmiko 内置了针对不同厂商设备（Cisco、华为、H3C、Juniper 等）的适配逻辑，自动处理提示
+符匹配、分页、权限切换等繁琐细节。
+Netmiko
+安装netmiko模块：
+pip install netmiko（官方地址安装，安装速度比较慢）
+pip install netmiko -i https://pypi.tuna.tsinghua.edu.cn/simple （国内镜像源安装方式）
+
+
+----- PAGE 14 -----
+Netmiko
+导入模块：
+from netmiko import ConnectHandler #导入模块
+定义字典存放参数：
+device = {
+'device_type': ‘huawei_vrp', ‘host' : '192.168.110.1',
+'username' : 'huawei', 'password': 'Huawei@123‘  }
+建立SSH连接：
+connect = ConnectHandler(**device)
+执行命令：
+cmds = ['disp cur','disp ip int br']
+output = connect.send_command(‘disp cur’)   #执行单条命令
+output = send_config_set(cmds)                          #批量下发配置命令
+output = connect.send_config_from_file(file_path,read_timeout=30,cmd_verify=False) #从文本文件读取配置并下发
+关闭连接：
+connect.disconnect()
+
+
+----- PAGE 15 -----
+03
+数据存储
+掌握★★★★★
+
+
+----- PAGE 16 -----
+数据存储
+MySQL 是一个流行的开源关系型数据库管理系统，由 Oracle 公司开发维护。其体积小、速度快、总体拥有成本低，尤其是
+开放源码这一特点，成为中小型网站首选数据库。
+MySQL的特性：
+关系型数据库：使用 SQL 语言进行数据管理
+开源免费：社区版完全免费
+跨平台：支持 Windows、Linux、macOS 等系统
+高性能：支持事务处理、索引优化
+高可靠性：支持数据备份、主从复制
+常见应用场景：
+网站后端数据库
+web 应用程序数据存储
+数据仓库和分析
+嵌入式数据库应用
+
+
+----- PAGE 17 -----
+数据存储
+实验所用到的软件：
+1、phpstudy_pro（小皮面板），提供MySQL数据库服务，也可以自己安装mysql数据库。
+2、Navicat Premium 16，提供MySQL数据库，图形化界面操作服务。
+
+
+
+----- PAGE 18 -----
+数据库配置
+1、创建数据库（hw_config）存放配置
+ 2、使用Navicat Premium 16验证数据库
+
+
+
+----- PAGE 19 -----
+连接数据库
+Python连接数据库方法很多，本实验选择PyMySQL，PyMySQL 是一个纯 Python 编写的 MySQL 客户端库，
+轻量且兼容性好。
+安装PyMySQL模块：
+pip install PyMySQL （官方地址安装，安装速度比较慢）
+pip install PyMySQL -i https://pypi.tuna.tsinghua.edu.cn/simple （国内镜像源安装方式）
+
+
+----- PAGE 20 -----
+from pymysql import *
+mysql_conn = connect(
+host="localhost", #数据库地址，非本机请填写IP地址
+port=3306, #数据默认端口3306
+user='huawei', 
+passwd='Huawei@123',
+db='hw_config', #数据库名称
+charset='utf8mb4' #数据库字符集
+)
+连接数据库
+
+
+----- PAGE 21 -----
+cursor = mysql_conn.cursor() #移动指针至开始
+cursor.execute(‘’‘CREATE TABLE IF NOT EXISTS config_data (      #表不存在就创建，存在就跳过不执行
+time TEXT, 
+name TEXT, 
+ip TEXT,
+content TEXT) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;''') #指定该表使用 utf8mb4 字符集
+创建数据表
+在 hw_config 数据库中创建一个名为 config_data 的表（如果该表不存在），表中有三个文本字段：time（时
+间）、name（名称）、ip（设备IP地址）、content（内容），并使用 utf8mb4 字符集支持完整的 Unicode 编码。
+
+
+----- PAGE 22 -----
+存放数据
+存放数据：
+query = "INSERT INTO config_data (time, name, ip，content) VALUES (%s, %s,%s, %s)" #在数据库中插入数据
+cursor.execute(query, (now_data,device_name,ip,output)) #插入时间/设备名称/ip地址/备份数据
+mysql_conn.commit() #数据库链接提交
+print("已存入数据库\n")
+cursor.close() #关闭数据库
+mysql_conn.close() #关闭数据库连接
+获取时间：
+from datetime import datetime #导入时间模块
+now = datetime.now()
+now_data = now.strftime(‘%Y-%m-%d %H:%M:%S’)    #获取当前时间
+print(f"当前时间: {now_data}")
+
+
+----- PAGE 23 -----
+数据展示
+
+
+
+----- PAGE 24 -----
+数据展示
+
+
+
+----- PAGE 25 -----
+

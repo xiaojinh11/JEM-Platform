@@ -107,6 +107,15 @@ class RiskGatingTest(unittest.TestCase):
     def setUp(self) -> None:
         from fastapi.testclient import TestClient
         self.client = TestClient(self.app)
+        # Reset the per-user batch-job limiter between tests so a
+        # previous suite's POSTs don't bleed into this one and surface
+        # as 429. The limiter is process-local so clearing its dict is
+        # sufficient.
+        try:
+            from app.core.ratelimit import batch_job_user_limiter
+            batch_job_user_limiter.reset()
+        except Exception:  # noqa: BLE001
+            pass
         with self.SessionLocal() as db:
             # Fresh tables per test (cascades to dependent rows).
             from app.models.job import Job, JobStep

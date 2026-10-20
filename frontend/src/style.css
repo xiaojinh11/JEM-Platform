@@ -1,0 +1,55 @@
+/* Minimal reset - everything else is in theme.css */
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+/* === Global Element Plus fixes for dark mode ===
+ * element-plus' el-tag uses --el-color-*-light-N tints that look washed-out
+ * on dark backgrounds. Force them to use solid theme colors.
+ * Also: el-table cells default to dark gray text that becomes invisible
+ * on dark page backgrounds. */
+html[data-theme="dark"] .el-tag {
+  border: none !important;
+  color: #fff !important;
+  font-weight: 600;
+}
+html[data-theme="dark"] .el-tag--primary  { background: var(--accent)  !important; }
+html[data-theme="dark"] .el-tag--success  { background: var(--success) !important; }
+html[data-theme="dark"] .el-tag--danger   { background: var(--danger)  !important; }
+html[data-theme="dark"] .el-tag--warning  { background: var(--warning) !important; }
+html[data-theme="dark"] .el-tag--info     { background: var(--border-3) !important; color: #fff !important; }
+
+/* Plain effect → keep translucent (works fine in both themes) */
+html[data-theme="dark"] .el-tag.el-tag--primary.is-hit  { border-color: var(--accent)  !important; }
+
+/* el-table cell text color + header bg — readable in both themes */
+html[data-theme="dark"] .el-table {
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: var(--bg-panel);
+  --el-table-header-text-color: var(--text-1);
+  --el-table-text-color: var(--text-1);
+  --el-table-border-color: var(--border-1);
+}
+html[data-theme="dark"] .el-table .el-table__cell {
+  background: transparent !important;
+  color: var(--text-1) !important;
+  border-color: var(--border-1) !important;
+}
+html[data-theme="dark"] .el-table th.el-table__cell {
+  background: var(--bg-panel) !important;
+  color: var(--text-1) !important;
+  font-weight: 600;
+}
+html[data-theme="dark"] .el-table--striped .el-table__body tr.el-table__row--striped td {
+  background: rgba(255, 255, 255, 0.02) !important;
+}
+html[data-theme="dark"] .el-table .cell {
+  color: var(--text-1);
+}

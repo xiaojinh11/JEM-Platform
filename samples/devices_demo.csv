@@ -1,0 +1,5 @@
+name,hostname,vendor,model,software_version,role,serial_no,location,tags,group,address,port,endpoint_kind,notes
+core-sw-01,core-sw-01,simulated,S5720-28X-LI,V200R022C10,switch,SN0001,核心机房,核心;万兆,核心,10.0.0.1,22,mgmt_ssh,核心交换机
+access-sw-01,access-sw-01,simulated,S5735-L8T4X,V200R022C10,switch,SN0002,教学楼A,接入;PoE,接入,10.1.0.1,22,mgmt_ssh,
+access-sw-02,access-sw-02,simulated,S5735-L8T4X,V200R022C10,switch,SN0003,教学楼B,接入,接入,10.1.0.2,22,mgmt_ssh,
+router-wan,router-wan,simulated,AR6121,V300R022C10,router,SN0004,核心机房,出口;防火墙,出口,10.0.255.1,22,mgmt_ssh,出口路由器

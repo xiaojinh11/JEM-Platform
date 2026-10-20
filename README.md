@@ -199,53 +199,7 @@ npm run dev                          # http://localhost:5173
 
 ## Project Layout
 
-```
-zidongh/
-├── backend/                          FastAPI + SQLAlchemy + Celery
-│   ├── app/
-│   │   ├── adapters/                 Multi-vendor adapters (incl. SimulatedAdapter)
-│   │   ├── api/v1/                   REST + WebSocket routes
-│   │   │   ├── offline_manual.py     CHM/7z in-browser reader + naw-chm:// bridge
-│   │   │   ├── drift.py              Drift detection and rollback candidate
-│   │   │   ├── graph.py              Knowledge-graph neighbour queries
-│   │   │   ├── ai.py                 AI Assistant (Agent + Monitor + ReAct)
-│   │   │   ├── job_approval.py       High-risk command approval flow
-│   │   │   └── ...
-│   │   ├── core/                     config / security / enums / logging
-│   │   ├── db/                       SQLAlchemy session + Base
-│   │   ├── graph/                    Kuzu wrapper
-│   │   ├── models/                   ORM models
-│   │   ├── schemas/                  Pydantic schemas
-│   │   ├── services/                 Business logic
-│   │   │   ├── offline_manual.py     CHM/7z unpack and index
-│   │   │   ├── offline_health.py     Health snapshot
-│   │   │   ├── drift.py              Drift scanner
-│   │   │   ├── ai_react.py           ReAct loop
-│   │   │   ├── plan_builder.py       Plan construction
-│   │   │   └── ...
-│   │   ├── workers/                  Celery tasks (drift / doc-index / batch)
-│   │   └── main.py                   FastAPI entrypoint
-│   ├── alembic/                      Database migrations
-│   ├── Dockerfile
-│   └── requirements.txt
-├── frontend/                         Vue 3 + Vite + Element Plus
-│   ├── src/
-│   │   ├── pages/                    Dashboard / Devices / Configs / Documents /
-│   │   │                             Jobs / Audit / Settings / WebSSH / Drift /
-│   │   │                             OfflineManual / MultiShell / Visualization / AIAssistant
-│   │   ├── components/               AppLayout + ChmViewer + ...
-│   │   ├── stores/                   Pinia stores
-│   │   ├── api.ts                    axios wrapper
-│   │   ├── router.ts                 Vue Router
-│   │   └── main.ts
-│   ├── Dockerfile
-│   └── nginx.conf
-├── docs/
-│   └── AI_DRIVEN_OPERATIONS.md
-├── docker-compose.yml
-├── deploy_secure.sh
-└── README.md
-```
+> Project structure is not publicly documented for security reasons.
 
 ---
 
@@ -589,53 +543,7 @@ npm run dev                        # http://localhost:5173
 
 ## 目录结构
 
-```
-zidongh/
-├── backend/                       FastAPI + SQLAlchemy + Celery
-│   ├── app/
-│   │   ├── adapters/              多厂商适配器（含 SimulatedAdapter）
-│   │   ├── api/v1/                REST + WebSocket 路由
-│   │   │   ├── offline_manual.py  CHM/7z 内嵌阅读 + naw-chm:// 桥接
-│   │   │   ├── drift.py           漂移检测与回滚候选
-│   │   │   ├── graph.py           知识图谱邻居查询
-│   │   │   ├── ai.py              AI 助手（Agent + Monitor + ReAct）
-│   │   │   ├── job_approval.py    高危命令审批流
-│   │   │   └── ...
-│   │   ├── core/                  config / security / enums / logging
-│   │   ├── db/                    SQLAlchemy session + Base
-│   │   ├── graph/                 Kuzu 封装
-│   │   ├── models/                ORM 模型
-│   │   ├── schemas/               Pydantic 模型
-│   │   ├── services/              业务逻辑层
-│   │   │   ├── offline_manual.py  CHM/7z 解包与索引
-│   │   │   ├── offline_health.py  健康度快照
-│   │   │   ├── drift.py           漂移扫描器
-│   │   │   ├── ai_react.py        ReAct 循环
-│   │   │   ├── plan_builder.py    计划构建
-│   │   │   └── ...
-│   │   ├── workers/               Celery 任务（drift / doc-index / batch）
-│   │   └── main.py                FastAPI 入口
-│   ├── alembic/                   数据库迁移
-│   ├── Dockerfile
-│   └── requirements.txt
-├── frontend/                      Vue 3 + Vite + Element Plus
-│   ├── src/
-│   │   ├── pages/                 Dashboard / Devices / Configs / Documents /
-│   │   │                          Jobs / Audit / Settings / WebSSH / Drift /
-│   │   │                          OfflineManual / MultiShell / Visualization / AIAssistant
-│   │   ├── components/            AppLayout + ChmViewer + ...
-│   │   ├── stores/                Pinia stores
-│   │   ├── api.ts                 axios 封装
-│   │   ├── router.ts              Vue Router
-│   │   └── main.ts
-│   ├── Dockerfile
-│   └── nginx.conf
-├── docs/
-│   └── AI_DRIVEN_OPERATIONS.md
-├── docker-compose.yml
-├── deploy_secure.sh
-└── README.md
-```
+> 项目结构不对外公开，安全性考虑。
 
 ---
 
